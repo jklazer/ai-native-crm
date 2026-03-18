@@ -31,8 +31,11 @@ coverage.xml
 # Test artifacts
 test_output.txt
 test_screenshot.png
+telegram_test_screenshot.png
 stress_test_results.txt
 stress_test_compression_results.txt
+e2e_*_results.json
+test_deal_ids.json
 
 # OS
 .DS_Store

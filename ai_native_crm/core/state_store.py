@@ -94,7 +94,9 @@ local payload = ARGV[3]
 local items = redis.call('LRANGE', key, 0, -1)
 for _, item in ipairs(items) do
     local data = cjson.decode(item)
-    if data.content == new_content and (data.deal_id or '') == new_deal then
+    local existing_deal = data.deal_id
+    if existing_deal == cjson.null or existing_deal == nil then existing_deal = '' end
+    if data.content == new_content and existing_deal == new_deal then
         return 0
     end
 end
