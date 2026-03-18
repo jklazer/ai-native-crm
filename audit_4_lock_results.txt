@@ -1,0 +1,45 @@
+======================================================================
+AUDIT 4: DISTRIBUTED LOCK TESTS
+Base CHAT_ID: 90004
+======================================================================
+
+=== TEST 4.1: Concurrent Messages (5 simultaneous) ===
+  Total elapsed: 15.75s
+  Responses received: 5/5
+  Errors: []
+  Final state.iteration: 5 (expected 5)
+  State consistent: True
+  Individual response times: [3.81, 6.34, 10.03, 12.91, 15.75]
+  [PASS] 4.1 Concurrent serialisation: iter=5, responses=5/5, errors=0
+
+=== TEST 4.2: Lock During LLM Processing ===
+  Total elapsed: 10.30s (expect ~4s: 2s+2s sequential)
+  LLM start times: [0.47, 5.88]
+  LLM end times:   [2.47, 7.88]
+  LLM serialised (msg2 started after msg1 finished): True
+  Completion order: ['msg1_done', 'msg2_done']
+  [PASS] 4.2 Lock during LLM: serialised=True, total=10.3s
+
+=== TEST 4.3: Lock Timeout (lock_timeout_sec=1) ===
+  All responses: ['Система занята, повторите через несколько секунд.', 'У нас есть несколько сделок на разных стадиях. Обсудим, как продвигать их дальше и какие действия предпринять.', 'У нас есть несколько сделок на разных стадиях. Обратите внимание на сделку с ООО Дельта Софт — сумма 450 000 ₽. Нужно прояснить статус и дальнейшие шаги.']
+  'Система занята' responses: 1/3
+  [PASS] 4.3 Lock timeout: 'Система занята' count=1/3
+
+=== TEST 4.4: Lock Cleanup ===
+  lock:chat:90044 exists after processing: False
+  lock:chat:90014 exists: False
+  lock:chat:90024 exists: False
+  lock:chat:90034 exists: False
+  All lock keys cleaned: True
+  [PASS] 4.4 Lock cleanup: stale_lock_present=False, all_cleaned=True
+
+======================================================================
+RESULTS SUMMARY
+======================================================================
+  Test 4.1: PASS
+  Test 4.2: PASS
+  Test 4.3: PASS
+  Test 4.4: PASS
+
+Passed: 4/4
+OVERALL: PASS

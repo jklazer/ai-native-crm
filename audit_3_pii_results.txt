@@ -1,0 +1,141 @@
+================================================================================
+AUDIT SECTION 3: PII ANONYMIZATION TEST (152-ФЗ)
+CHAT_ID = 90003
+================================================================================
+
+──────────────────────────────────────────────────────────────────────
+[FAIL] BLOCK 1: Базовый ФИО + телефон + email
+  Input:       Позвони Сергею Иванову по номеру +7 916 123-45-67, его email ivan@mail.ru
+  Anonymized:  Позвони Сергею Иванову по номеру [PHONE_1], его email [EMAIL_1]
+  Deanonymized:Позвони Сергею Иванову по номеру +7 916 123-45-67, его email ivan@mail.ru
+  Tokens:      ['[PHONE_1]', '[EMAIL_1]']
+  PERSON masked: False
+  PHONE masked:  True
+  EMAIL masked:  True
+  PII leaked:  ['(часть ФИО)']
+  Round-trip:  True — Полное восстановление
+
+──────────────────────────────────────────────────────────────────────
+[PASS] BLOCK 2: Двойная фамилия
+  Input:       Петров-Водкин Иван Сергеевич
+  Anonymized:  [PERSON_1]
+  Deanonymized:Петров-Водкин Иван Сергеевич
+  Tokens:      ['[PERSON_1]']
+  PERSON masked: True
+  PHONE masked:  False
+  EMAIL masked:  False
+  PII leaked:  none
+  Round-trip:  True — Полное восстановление
+  NOTE: Паттерн _RE_FULL_NAME поддерживает Фамилия-Фамилия
+
+──────────────────────────────────────────────────────────────────────
+[PASS] BLOCK 2: Полное ФИО с отчеством
+  Input:       Иванов Сергей Петрович
+  Anonymized:  [PERSON_1]
+  Deanonymized:Иванов Сергей Петрович
+  Tokens:      ['[PERSON_1]']
+  PERSON masked: True
+  PHONE masked:  False
+  EMAIL masked:  False
+  PII leaked:  none
+  Round-trip:  True — Полное восстановление
+  NOTE: Стандартное ФИО в именительном падеже
+
+──────────────────────────────────────────────────────────────────────
+[PASS] BLOCK 2: Телефон без +7 (8xxx)
+  Input:       8 916 123 45 67
+  Anonymized:  [PHONE_1]
+  Deanonymized:8 916 123 45 67
+  Tokens:      ['[PHONE_1]']
+  PERSON masked: False
+  PHONE masked:  True
+  EMAIL masked:  False
+  PII leaked:  none
+  Round-trip:  True — Полное восстановление
+  NOTE: Формат 8-916... должен матчиться
+
+──────────────────────────────────────────────────────────────────────
+[PASS] BLOCK 2: Телефон без пробелов
+  Input:       89161234567
+  Anonymized:  [PHONE_1]
+  Deanonymized:89161234567
+  Tokens:      ['[PHONE_1]']
+  PERSON masked: False
+  PHONE masked:  True
+  EMAIL masked:  False
+  PII leaked:  none
+  Round-trip:  True — Полное восстановление
+  NOTE: Слитный формат без разделителей
+
+──────────────────────────────────────────────────────────────────────
+[PASS] BLOCK 2: Email с точкой в имени
+  Input:       Напиши на ivan.petrov@company.ru
+  Anonymized:  Напиши на [EMAIL_1]
+  Deanonymized:Напиши на ivan.petrov@company.ru
+  Tokens:      ['[EMAIL_1]']
+  PERSON masked: False
+  PHONE masked:  False
+  EMAIL masked:  True
+  PII leaked:  none
+  Round-trip:  True — Полное восстановление
+  NOTE: Точка в локальной части email
+
+──────────────────────────────────────────────────────────────────────
+[PASS (NOTE)] BLOCK 2: ИНН — не маскируется
+  Input:       ИНН организации: 7707083893
+  Anonymized:  ИНН организации: 7707083893
+  Deanonymized:ИНН организации: 7707083893
+  Tokens:      []
+  PERSON masked: False
+  PHONE masked:  False
+  EMAIL masked:  False
+  PII leaked:  none
+  Round-trip:  True — Полное восстановление
+  NOTE: NOTE: ИНН юрлица не является ПДн физлица — маскировка не предусмотрена
+
+──────────────────────────────────────────────────────────────────────
+[PASS] BLOCK 3: Полный цикл engine.process()
+  Input:       Позвони Козлову Дмитрию Петровичу по +79161234567, email kozlov@delta.ru
+  Anonymized:  (внутри engine — не экспортируется)
+  Deanonymized:Данные о сделках не содержат информации о Козлове Дмитрии Петровиче. Необходимо уточнить контактные данные или информацию о сделке.
+  Tokens:      []
+  PERSON masked: True
+  PHONE masked:  True
+  EMAIL masked:  True
+  PII leaked:  ['Козлов']
+  Round-trip:  True — PASS: токены скрыты, ответ деанонимизирован корректно
+  NOTE: Redis mapping key 'pii:90003': found
+  NOTE: Mapping fields: ['[PHONE_1]', '[EMAIL_1]']
+
+──────────────────────────────────────────────────────────────────────
+[PASS] BLOCK 4: Redis mapping round-trip
+  Input:       Контакт: Смирнов Алексей Владимирович, тел +7 (495) 111-22-33, smirn@test.com
+  Anonymized:  Контакт: [PERSON_1], тел +7 (495) 111-22-33, [EMAIL_1]
+  Deanonymized:Контакт: Смирнов Алексей Владимирович, тел +7 (495) 111-22-33, smirn@test.com
+  Tokens:      ['[PERSON_1]', '[EMAIL_1]']
+  PERSON masked: True
+  PHONE masked:  False
+  EMAIL masked:  True
+  PII leaked:  ['+7 (495) 111-22-33']
+  Round-trip:  True — Полное восстановление
+  NOTE: Redis key pii:90003_rt: 2 entries
+  NOTE: Redis TTL: 3600s (settings.pii_ttl_sec)
+  NOTE: Mapping complete: True
+  NOTE: Mapping correct values: True
+
+================================================================================
+PASS/FAIL SUMMARY
+================================================================================
+  Total tests: 9
+  PASS:        8 (включая 1 с NOTE)
+  FAIL:        1
+
+================================================================================
+KNOWN LIMITATIONS / NOT MASKED
+================================================================================
+  - ИНН юридических лиц (не ПДн физлица по 152-ФЗ)
+  - ФИО в косвенных падежах (напр. 'Козлову' без отчества)
+  - Должности и названия организаций
+  - ФИО из 2 слов без отчества (имя + фамилия)
+
+OVERALL: FAIL

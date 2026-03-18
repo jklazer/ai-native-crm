@@ -1,0 +1,63 @@
+
+======================================================================
+  SECTION 6: Bitrix24 CRM Adapter Audit
+======================================================================
+    INFO: Webhook: https://b24-sz8hxp.bitrix24.ru/rest/1/j34kkubjf0dtl0qg/
+    INFO: Timestamp: 2026-03-19 00:48:12
+
+--- TEST 1 — get_deals() normal ---
+    INFO: Returned type: <class 'list'>
+  [PASS] get_deals returns list | count=5
+    INFO: Sample deal: id='60' title='ИП Сидорова - внедрение CRM' stage='NEW' amount=0.0 currency='RUB'
+  [PASS] get_deals returns DealInfo instances | first id='60'
+
+--- TEST 2 — get_deals() field mapping ---
+  [PASS] DealInfo has all required fields | fields=['id', 'title', 'stage', 'amount', 'currency', 'contact_name']
+  [PASS] field 'id' populated | across 5 deals
+  [PASS] field 'title' populated | across 5 deals
+  [PASS] field 'stage' populated | across 5 deals
+  [WARN] field 'amount' is empty/zero | in 1/5 deals
+  [PASS] field 'currency' populated | across 5 deals
+    INFO: field 'contact_name' is empty in 5/5 deals (expected — crm.deal.list does not return it)
+  [PASS] contact_name empty is expected behavior | adapter comment confirms this
+    INFO: Full sample: id='60', title='ИП Сидорова - внедрение CRM', stage='NEW', amount=0.0, currency='RUB', contact_name='', contact_id='72'
+
+--- TEST 3 — update_deal() with invalid ID=999999 ---
+    INFO: update_deal('999999', ...) returned: False
+  [PASS] update_deal invalid ID returns False | Correct — silently fails
+
+--- TEST 4 — update_deal() with invalid field NONEXISTENT_FIELD ---
+    INFO: Using real deal_id='60'
+    INFO: update_deal('60', NONEXISTENT_FIELD) returned: True
+  [WARN] update_deal with invalid field returned True | Bitrix24 silently ignores unknown fields — not an error per se, but note it
+
+--- TEST 5 — BitrixAdapter with wrong/invalid webhook URL ---
+    INFO: get_deals() on invalid URL returned: [] in 0.08s
+  [PASS] wrong URL returns empty list (graceful degradation) | elapsed=0.08s
+
+--- TEST 6 — Session management / adapter.close() ---
+  [PASS] session is None before first call | Lazy initialization confirmed
+  [PASS] session created after first call | Lazy init works
+  [PASS] adapter.close() closes session cleanly | No exception
+  [PASS] double close() is safe | No exception on second close()
+
+--- TEST 7 — Raw response edge cases (null amounts, missing fields) ---
+    INFO: Raw result count from crm.deal.list: 5
+    INFO: Deals with null/empty OPPORTUNITY: 0
+    INFO: Deals with OPPORTUNITY='0': 0
+    INFO: Deals without CONTACT_ID: 0
+    INFO: Deals without TITLE: 0
+    INFO: Deals without STAGE_ID: 0
+  [PASS] All deals have non-null OPPORTUNITY | No edge case in current data
+  [PASS] All deals have CONTACT_ID set
+  [PASS] No pagination needed | All deals fit in single response
+  [PASS] No 'error' field in raw response
+
+======================================================================
+SUMMARY
+======================================================================
+  PASS:    18
+  FAIL:    0
+  WARN:    2
+  TOTAL:   20
+======================================================================

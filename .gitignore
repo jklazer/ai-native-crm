@@ -1,0 +1,44 @@
+# Environment secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Test artifacts
+test_output.txt
+test_screenshot.png
+stress_test_results.txt
+stress_test_compression_results.txt
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Redis
+dump.rdb
+appendonly.aof

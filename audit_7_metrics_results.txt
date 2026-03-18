@@ -1,0 +1,91 @@
+
+======================================================================
+  SECTION 7: Metrics, Drift Detection, and Alerting Audit
+======================================================================
+    INFO: Redis URL: redis://localhost:6379/5
+    INFO: CHAT_ID: 90007
+    INFO: Timestamp: 2026-03-19 00:48:19
+  [PASS] Redis connection established | url=redis://localhost:6379/5
+
+--- TEST 1 — Basic metrics recording (3 turns) ---
+    INFO: Reset metrics for CHAT_ID=90007
+    INFO: Recorded 3 turns (no hallucination, no actions)
+    INFO: get_stats result: {'total_turns': 3, 'hallucination_count': 0, 'hallucination_rate': 0.0, 'action_total': 0, 'action_success': 0, 'action_success_rate': 0.0}
+  [PASS] total_turns == 3 after 3 record_turn() calls
+  [PASS] action_total == 0 (has_actions=False for all turns)
+  [PASS] hallucination_count == 0 (no hallucinations in 3 turns)
+    INFO: store.get_metrics result: {'total_turns': 3.0}
+  [PASS] store.get_metrics returns non-empty dict after recording
+    INFO: Note: MetricsService uses hincrby (counters), store.update_metrics uses hset (arbitrary float fields) — same key space
+
+--- TEST 2 — Hallucination counting ---
+    INFO: After 5 normal + 1 hallucinated: {'total_turns': 6, 'hallucination_count': 1, 'hallucination_rate': 0.16666666666666666, 'action_total': 0, 'action_success': 0, 'action_success_rate': 0.0}
+  [PASS] total_turns == 6
+  [PASS] hallucination_count == 1 after one hallucinated turn
+  [PASS] hallucination_rate == 0.1667 (1/6)
+    INFO: Simulated 'nonexistent deal #99999999' as hallucinated=True — in production the ResponseValidator would detect this and flag it.
+  [PASS] hallucination detection pathway verified via record_turn(hallucinated=True)
+
+--- TEST 3 — Metrics at 0 turns (chat_id=99999 never used) ---
+    INFO: get_stats(99999) returned: {'total_turns': 0, 'hallucination_count': 0, 'hallucination_rate': 0.0, 'action_total': 0, 'action_success': 0, 'action_success_rate': 0.0}
+  [PASS] get_stats returns dict with total_turns=0 for unknown chat_id
+  [PASS] get_stats does NOT crash on chat_id with no history
+    INFO: store.get_metrics(99999) returned: {}
+  [PASS] store.get_metrics returns empty dict for unknown chat_id
+    INFO: check_thresholds(99999) returned: []
+  [PASS] check_thresholds returns [] when total_turns=0 (early-exit guard)
+
+--- TEST 4 — DriftDetector.check() drift score ---
+    INFO: Drift score with empty working_memory: 0.0
+  [PASS] drift score == 0.0 for empty working_memory (no deal IDs to check)
+  [PASS] drift score in [0, 1]: 0.0
+    INFO: Drift score with fake deal_id d99999999: 1.0
+  [PASS] drift score in [0, 1] for fake deal: 1.0
+  [PASS] drift score > 0 for nonexistent deal_id (drift detected correctly)
+    INFO: Regex found deal IDs in test string: ['d99999999']
+  [PASS] DriftDetector regex correctly finds d99999999 in working_memory
+    INFO: Real state from Redis: iteration=0, working_memory length=0
+    INFO: Drift score for real stored state: 0.0
+  [PASS] drift score in [0, 1] for real state: 0.0
+
+--- TEST 5 — Metrics persistence in Redis ---
+    INFO: Stats before 'restart': {'total_turns': 8, 'hallucination_count': 1, 'hallucination_rate': 0.125, 'action_total': 8, 'action_success': 7, 'action_success_rate': 0.875}
+    INFO: Stats after 'restart' (new connection): {'total_turns': 8, 'hallucination_count': 1, 'hallucination_rate': 0.125, 'action_total': 8, 'action_success': 7, 'action_success_rate': 0.875}
+  [PASS] total_turns persisted across connection restart | value=8
+  [PASS] hallucination_count persisted | value=1
+  [PASS] action_total persisted | value=8
+
+--- TEST 6 — Alert thresholds and alerting mechanisms ---
+    INFO: Settings thresholds:
+    INFO:   hallucination_threshold  = 0.05 (5%)
+    INFO:   drift_threshold          = 0.4
+    INFO:   action_success_threshold = 0.9 (90%)
+    INFO: Stats at 20% hallucination rate: {'total_turns': 10, 'hallucination_count': 2, 'hallucination_rate': 0.2, 'action_total': 0, 'action_success': 0, 'action_success_rate': 0.0}
+    INFO: Violations: ['HALLUCINATION: 20.0% > threshold 5.0% (chat_id=90007, total_turns=10)']
+  [PASS] HALLUCINATION threshold violation detected at 20% rate | threshold=5%
+    INFO: Stats at 10% action success rate: {'total_turns': 10, 'hallucination_count': 0, 'hallucination_rate': 0.0, 'action_total': 10, 'action_success': 1, 'action_success_rate': 0.1}
+    INFO: Violations: ['ACTION_SUCCESS: 10.0% < threshold 90.0% (chat_id=90007, action_total=10)']
+  [PASS] ACTION_SUCCESS threshold violation detected at 10% success rate | threshold=90%
+    INFO: Violations at 0% hallucination, 100% action success: []
+  [PASS] No violations at healthy metrics (0% hall, 100% action success)
+
+--- TEST 6D — Alerting mechanism inspection ---
+  [PASS] No crash when bot=None and thresholds exceeded | Alerting silently skipped when bot not configured
+    INFO: Alerting mechanism analysis:
+    INFO:   - check_thresholds() returns list[str] of violation messages
+    INFO:   - _send_alert() is called only if bot AND alert_chat_id are set
+    INFO:   - Violations are logged at WARNING/ERROR level regardless of bot
+    INFO:   - No retry mechanism for failed alert sends
+    INFO:   - No dead-letter queue for missed alerts
+  [PASS] hallucination_threshold=0.05 (5%) confirmed in settings
+  [PASS] drift_threshold=0.40 confirmed in settings
+  [PASS] action_success_threshold=0.90 (90%) confirmed in settings
+
+======================================================================
+SUMMARY
+======================================================================
+  PASS:    29
+  FAIL:    0
+  WARN:    0
+  TOTAL:   29
+======================================================================
