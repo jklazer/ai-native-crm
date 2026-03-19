@@ -5,6 +5,9 @@ class Settings(BaseSettings):
     # Telegram
     telegram_token: str
 
+    # Аутентификация — разрешённые chat_id (через запятую, пусто = все)
+    allowed_chat_ids: str = ""
+
     # Redis — ЕДИНСТВЕННЫЙ storage, никакого SQL
     redis_url: str = "redis://localhost:6379/0"
     redis_socket_timeout: int = 10   # seconds — timeout on individual Redis operations
@@ -33,6 +36,7 @@ class Settings(BaseSettings):
     # Стейт — лимиты памяти
     token_budget: int = 3000
     wm_max_chars: int = 4000
+    max_critical_facts: int = 500
 
     # Метрики — пороги go/no-go для мониторинга качества
     hallucination_threshold: float = 0.05
@@ -55,8 +59,18 @@ class Settings(BaseSettings):
     # Планировщик напоминаний — интервал опроса в секундах
     reminder_check_interval: int = 60
 
+    # Rate limiting — максимум сообщений от одного пользователя в минуту
+    rate_limit_per_minute: int = 10
+
     # Веб-панель — API-ключ для авторизации
     web_api_key: str = "change-me-in-production"
+
+    @property
+    def allowed_chat_ids_set(self) -> set[int]:
+        """Разобрать allowed_chat_ids в множество int. Пустая строка → пустое множество (= все разрешены)."""
+        if not self.allowed_chat_ids.strip():
+            return set()
+        return {int(cid.strip()) for cid in self.allowed_chat_ids.split(",") if cid.strip()}
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

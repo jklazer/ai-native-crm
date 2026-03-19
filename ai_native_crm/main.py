@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections import defaultdict
 
 import redis.asyncio as aioredis
 from aiogram import Bot, Dispatcher, Router
@@ -34,6 +36,58 @@ _metrics = None      # MetricsService
 
 
 # ---------------------------------------------------------------------------
+# Аутентификация
+# ---------------------------------------------------------------------------
+
+def _is_authorized(chat_id: int) -> bool:
+    """Вернуть True, если chat_id разрешён.
+
+    Если allowed_chat_ids не задан (пустая строка) — все разрешены.
+    Иначе — только те chat_id, которые перечислены в настройке.
+    """
+    allowed = settings.allowed_chat_ids_set
+    if not allowed:
+        return True
+    return chat_id in allowed
+
+
+_DENY_MESSAGE = "Доступ запрещён. Обратитесь к администратору."
+
+
+# ---------------------------------------------------------------------------
+# Rate limiter — скользящее окно (1 минута) на chat_id
+# ---------------------------------------------------------------------------
+
+class RateLimiter:
+    """Простой in-memory rate limiter со скользящим окном."""
+
+    def __init__(self, max_requests: int, window_sec: float = 60.0):
+        self._max = max_requests
+        self._window = window_sec
+        self._hits: dict[int, list[float]] = defaultdict(list)
+
+    def is_allowed(self, chat_id: int) -> bool:
+        """Вернуть True, если запрос разрешён."""
+        now = time.monotonic()
+        bucket = self._hits[chat_id]
+        # Удалить старые записи за пределами окна
+        cutoff = now - self._window
+        self._hits[chat_id] = bucket = [t for t in bucket if t > cutoff]
+        if len(bucket) >= self._max:
+            return False
+        bucket.append(now)
+        return True
+
+
+_limiter = RateLimiter(
+    max_requests=settings.rate_limit_per_minute,
+    window_sec=60.0,
+)
+
+_RATE_LIMIT_MESSAGE = "Слишком много сообщений. Подождите минуту."
+
+
+# ---------------------------------------------------------------------------
 # Роутер хендлеров
 # ---------------------------------------------------------------------------
 router = Router()
@@ -45,6 +99,9 @@ async def cmd_start(message: Message) -> None:
     if message.chat is None:
         return
     chat_id = message.chat.id
+    if not _is_authorized(chat_id):
+        await message.answer(_DENY_MESSAGE)
+        return
 
     deals = await _crm.get_deals()
     await message.answer(
@@ -64,6 +121,9 @@ async def cmd_start(message: Message) -> None:
 async def cmd_state(message: Message) -> None:
     """Показать текущий стейт агента из Redis."""
     chat_id = message.chat.id
+    if not _is_authorized(chat_id):
+        await message.answer(_DENY_MESSAGE)
+        return
     state = await _store.load(chat_id)
 
     wm_preview = (state.working_memory[:200] + "…") if len(state.working_memory) > 200 else state.working_memory
@@ -81,6 +141,10 @@ async def cmd_state(message: Message) -> None:
 @router.message(Command("deals"))
 async def cmd_deals(message: Message) -> None:
     """Вывести сделки напрямую из CRM API."""
+    chat_id = message.chat.id
+    if not _is_authorized(chat_id):
+        await message.answer(_DENY_MESSAGE)
+        return
     deals = await _crm.get_deals()
 
     if not deals:
@@ -104,6 +168,9 @@ async def cmd_deals(message: Message) -> None:
 async def cmd_facts(message: Message) -> None:
     """Показать критические факты из Redis для данного чата."""
     chat_id = message.chat.id
+    if not _is_authorized(chat_id):
+        await message.answer(_DENY_MESSAGE)
+        return
     facts = await _store.get_critical_facts(chat_id)
 
     if not facts:
@@ -123,6 +190,9 @@ async def cmd_facts(message: Message) -> None:
 async def cmd_metrics(message: Message) -> None:
     """Показать метрики качества агента из Redis."""
     chat_id = message.chat.id
+    if not _is_authorized(chat_id):
+        await message.answer(_DENY_MESSAGE)
+        return
     stats = await _metrics.get_stats(chat_id)
 
     total = int(stats.get("total_turns", 0))
@@ -146,6 +216,9 @@ async def cmd_metrics(message: Message) -> None:
 async def cmd_drift(message: Message) -> None:
     """Запустить проверку дрейфа стейта вручную."""
     chat_id = message.chat.id
+    if not _is_authorized(chat_id):
+        await message.answer(_DENY_MESSAGE)
+        return
     state = await _store.load(chat_id)
 
     # DriftDetector.check() принимает SemanticState и возвращает float [0, 1]
@@ -167,6 +240,12 @@ async def cmd_drift(message: Message) -> None:
 async def handle_text(message: Message) -> None:
     """Основной хендлер — передать текст в AgentEngine и ответить."""
     chat_id = message.chat.id
+    if not _is_authorized(chat_id):
+        await message.answer(_DENY_MESSAGE)
+        return
+    if not _limiter.is_allowed(chat_id):
+        await message.answer(_RATE_LIMIT_MESSAGE)
+        return
     user_text = message.text or ""
 
     if not user_text:
@@ -200,21 +279,34 @@ async def _send_typing_periodically(bot: Bot, chat_id: int) -> None:
 # Фоновая задача: планировщик напоминаний
 # ---------------------------------------------------------------------------
 
+_REMINDER_BATCH_LIMIT = 20  # макс. напоминаний за один цикл (защита от 429)
+
+
 async def reminder_scheduler() -> None:
     """
     Фоновая задача — проверяет просроченные напоминания каждые N секунд.
     При срабатывании отправляет сообщение в соответствующий чат.
+    Batch limit + exponential backoff на Telegram 429.
     """
-    # TODO [MEDIUM]: add batch limit and Telegram 429 backoff
     interval = settings.reminder_check_interval
     logger.info("Планировщик напоминаний запущен, интервал=%ds", interval)
+    backoff = 0.0  # текущая задержка при 429
 
     while True:
+        if backoff > 0:
+            logger.warning("Telegram 429 backoff: ждём %.1f с", backoff)
+            await asyncio.sleep(backoff)
+
+        sent = 0
         try:
             chat_ids = await _store.get_all_reminder_keys()
             for chat_id in chat_ids:
+                if sent >= _REMINDER_BATCH_LIMIT:
+                    break
                 reminders = await _store.get_due_reminders(chat_id)
                 for reminder in reminders:
+                    if sent >= _REMINDER_BATCH_LIMIT:
+                        break
                     text = reminder.get("text", "Напоминание")
                     deal_id = reminder.get("deal_id")
 
@@ -224,11 +316,22 @@ async def reminder_scheduler() -> None:
 
                     try:
                         await _bot.send_message(chat_id, msg)
+                        sent += 1
+                        backoff = 0.0  # сброс при успехе
                         logger.info(
                             "Напоминание отправлено: chat_id=%d deal_id=%s",
                             chat_id, deal_id,
                         )
                     except Exception as exc:
+                        exc_str = str(exc)
+                        if "429" in exc_str or "Retry-After" in exc_str or "retry_after" in exc_str.lower():
+                            backoff = max(backoff * 2, 5.0)
+                            backoff = min(backoff, 300.0)  # макс. 5 минут
+                            logger.warning(
+                                "Telegram 429 — backoff увеличен до %.1f с",
+                                backoff,
+                            )
+                            break
                         logger.error(
                             "Ошибка отправки напоминания chat_id=%d: %s",
                             chat_id, exc,
@@ -264,7 +367,11 @@ async def main() -> None:
 
     # --- 2. StateStore ---
     from ai_native_crm.core.state_store import StateStore
-    _store = StateStore(redis, audit_ttl_days=settings.audit_ttl_days)
+    _store = StateStore(
+        redis,
+        audit_ttl_days=settings.audit_ttl_days,
+        max_critical_facts=settings.max_critical_facts,
+    )
 
     # --- 3. CRM-адаптер ---
     from ai_native_crm.adapters import get_adapter

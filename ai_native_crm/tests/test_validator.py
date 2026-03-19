@@ -126,10 +126,10 @@ async def test_amount_mismatch():
     deals = await adapter.get_deals()
     fixed, alerts = await validator.validate(response, deals)
 
-    # Action остаётся (validator не блокирует обновление суммы)
-    assert len(fixed["actions"]) == 1
+    # Action удалён: validator блокирует действие при несоответствии суммы
+    assert len(fixed["actions"]) == 0
 
-    # Но alert о несоответствии суммы должен быть зафиксирован
+    # Alert о несоответствии суммы должен быть зафиксирован
     amount_alerts = [a for a in alerts if "AMOUNT_MISMATCH" in a]
     assert len(amount_alerts) == 1
     assert "d1" in amount_alerts[0]

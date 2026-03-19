@@ -54,7 +54,8 @@ Return ONLY valid JSON, no markdown:
   "actions": [
     {"type": "update_deal", "target": "crm", "params": {"deal_id": "d1", "fields": {"STAGE_ID": "NEGOTIATION"}}},
     {"type": "send_reminder", "target": "telegram", "params": {"text": "Позвонить", "delay_seconds": 3600}},
-    {"type": "add_critical_fact", "target": "internal", "params": {"deal_id": "d1", "fact_type": "budget_limit", "content": "Бюджет не более 500к"}}
+    {"type": "add_critical_fact", "target": "internal", "params": {"deal_id": "d1", "fact_type": "budget_limit", "content": "Бюджет не более 500к"}},
+    {"type": "create_deal", "target": "crm", "params": {"data": {"TITLE": "Название сделки", "OPPORTUNITY": 500000, "CURRENCY_ID": "RUB", "STAGE_ID": "NEW"}}}
   ],
   "new_working_memory": "контекст БЕЗ чисел, ID, сумм — только смысл",
   "new_assessment": "оценка ситуации",
@@ -70,6 +71,7 @@ Return ONLY valid JSON, no markdown:
 5. actions can be [].
 6. response in Russian.
 7. Always extract critical facts.
+8. When the user asks to create a new deal, ALWAYS use create_deal action with target='crm'.
 
 ## CORRECT EXAMPLE
 Facts: Deal d1 "Внедрение 1С", 450000 RUB, PREPARATION
@@ -287,7 +289,7 @@ class AgentEngine:
                 await self._store.add_critical_fact(chat_id, fact)
 
         # --- Шаг 9: обновить и сохранить стейт ---
-        state = self._apply_llm_updates(state, fixed_response)
+        state = await self._apply_llm_updates(state, fixed_response)
         await self._store.save(chat_id, state)
 
         # --- Шаг 10: аудит + метрики ---
@@ -326,20 +328,27 @@ class AgentEngine:
     # Вспомогательные методы
     # ------------------------------------------------------------------
 
-    def _apply_llm_updates(
+    async def _apply_llm_updates(
         self, state: SemanticState, llm_response: dict[str, Any]
     ) -> SemanticState:
         """
         Применить изменения из ответа LLM к стейту.
         Не мутирует исходный state — возвращает новый объект через dataclasses.replace.
+
+        LLM-генерированные поля прогоняются через PIIAnonymizer перед сохранением
+        в Redis, чтобы исключить утечку ПДн в соответствии с 152-ФЗ.
         """
         new_wm = str(llm_response.get("new_working_memory") or state.working_memory)
         new_assessment = str(llm_response.get("new_assessment") or state.agent_assessment)
         new_summary = str(llm_response.get("new_conversation_summary") or state.conversation_summary)
 
-        # TODO [MEDIUM]: LLM-generated fields may contain PII that bypasses anonymization.
-        # For production: run anonymizer on new_wm, new_assessment, new_summary before storing.
-        # Current mitigation: system prompt instructs LLM not to include numbers/IDs in working_memory.
+        # Re-anonymize LLM-generated text fields before persisting to Redis.
+        # LLM may echo back PII (names, phones, emails) it received in context,
+        # so we must strip it out here regardless of what the system prompt instructs.
+        session_id = str(state.chat_id)
+        new_wm = await self._anonymizer.anonymize(new_wm, session_id)
+        new_assessment = await self._anonymizer.anonymize(new_assessment, session_id)
+        new_summary = await self._anonymizer.anonymize(new_summary, session_id)
 
         # Ограничиваем размер полей памяти
         new_wm = new_wm[: settings.wm_max_chars]

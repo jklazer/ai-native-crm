@@ -4,7 +4,7 @@
 
 Схема ключей:
   state:{chat_id}           → JSON (SemanticState)       TTL: нет
-  critical_facts:{chat_id}  → Redis List                 TTL: нет (append-only навсегда)
+  critical_facts:{chat_id}  → Redis List                 TTL: нет (capped at max_critical_facts entries)
   audit:{chat_id}           → Redis Stream               TTL: audit_ttl_days
   metrics:{chat_id}         → Redis Hash                 TTL: нет
   reminders:{chat_id}       → Redis Sorted Set           TTL: нет (элементы удаляются при срабатывании)
@@ -118,10 +118,17 @@ class StateStore:
     # Суффикс TTL аудита: seconds per day
     _SECS_PER_DAY = 86_400
 
-    def __init__(self, redis: Redis, audit_ttl_days: int = 30) -> None:
+    def __init__(
+        self,
+        redis: Redis,
+        audit_ttl_days: int = 30,
+        max_critical_facts: int = 500,
+    ) -> None:
         self._r = redis
         # TTL для Redis Stream с аудитом — в секундах
         self._audit_ttl_sec = audit_ttl_days * self._SECS_PER_DAY
+        # Maximum number of critical facts retained per chat (oldest are trimmed)
+        self._max_facts = max_critical_facts
         # Pre-registered Lua script for atomic dedup on critical_facts list
         self._script_dedup_rpush = self._r.register_script(_LUA_DEDUP_RPUSH)
 
@@ -199,9 +206,9 @@ class StateStore:
     async def get_critical_facts(self, chat_id: int) -> list[CriticalFact]:
         """
         Вернуть все критические факты в порядке добавления.
-        Список никогда не обрезается — это намеренно.
+        Список ограничен max_critical_facts записями: LTRIM в add_critical_fact
+        гарантирует, что хранятся только последние N фактов (самые новые).
         """
-        # TODO [LOW]: critical_facts list has no size bound. Add LTRIM after RPUSH.
         raw_items: list[str] = await self._r.lrange(self._key_facts(chat_id), 0, -1)
         facts: list[CriticalFact] = []
         for raw in raw_items:
@@ -215,6 +222,8 @@ class StateStore:
         TTL не ставится — факты хранятся вечно.
         Дубликаты по content+deal_id пропускаются атомарно через Lua-скрипт
         (избегает гонки read-then-write при параллельных записях).
+        После вставки список обрезается до max_critical_facts последних записей
+        через LTRIM, чтобы список не рос неограниченно.
         """
         key = self._key_facts(chat_id)
         payload = json.dumps(asdict(fact), ensure_ascii=False)
@@ -224,6 +233,9 @@ class StateStore:
             keys=[key],
             args=[fact.content, deal_id_str, payload],
         )
+        # Keep only the last N facts; negative indices count from the tail,
+        # so (-max_facts, -1) retains the most-recently added entries.
+        await self._r.ltrim(key, -self._max_facts, -1)
 
     # ------------------------------------------------------------------
     # Audit Trail (Redis Stream)

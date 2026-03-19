@@ -160,10 +160,10 @@ class ResponseValidator:
                             f"предлагает сумму {proposed_amount}, CRM вернул {crm_amount}"
                         )
                         alerts.append(alert)
-                        logger.warning("Несоответствие суммы: %s", alert)
-                        # Не удаляем действие — только фиксируем расхождение,
-                        # т.к. update_deal может законно изменять сумму.
-                        # Если нужно блокировать — раскомментировать: return None, alerts
+                        logger.error("Несоответствие суммы заблокировано: %s", alert)
+                        # Блокируем действие: LLM не должен самостоятельно менять
+                        # сумму сделки — это приводило бы к финансовым ошибкам.
+                        return None, alerts
 
         return action, alerts
 
