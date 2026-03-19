@@ -13,6 +13,7 @@ from collections import defaultdict
 
 import redis.asyncio as aioredis
 from aiogram import Bot, Dispatcher, Router
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -322,16 +323,16 @@ async def reminder_scheduler() -> None:
                             "Напоминание отправлено: chat_id=%d deal_id=%s",
                             chat_id, deal_id,
                         )
+                    except TelegramRetryAfter as exc:
+                        # Telegram requires waiting — respect retry_after before continuing
+                        backoff = max(backoff * 2, float(exc.retry_after))
+                        backoff = min(backoff, 300.0)  # cap at 5 minutes
+                        logger.warning(
+                            "Telegram 429 RetryAfter=%ds, backoff=%.1fs",
+                            exc.retry_after, backoff,
+                        )
+                        break
                     except Exception as exc:
-                        exc_str = str(exc)
-                        if "429" in exc_str or "Retry-After" in exc_str or "retry_after" in exc_str.lower():
-                            backoff = max(backoff * 2, 5.0)
-                            backoff = min(backoff, 300.0)  # макс. 5 минут
-                            logger.warning(
-                                "Telegram 429 — backoff увеличен до %.1f с",
-                                backoff,
-                            )
-                            break
                         logger.error(
                             "Ошибка отправки напоминания chat_id=%d: %s",
                             chat_id, exc,

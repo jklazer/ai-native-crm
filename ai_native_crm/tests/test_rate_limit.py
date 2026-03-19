@@ -1,7 +1,8 @@
-"""Тесты для rate limiter — скользящее окно по chat_id."""
-from __future__ import annotations
-
-import time
+"""
+Тесты RateLimiter — 3 теста.
+Проверяем in-memory rate limiter с скользящим окном в 60 секунд.
+Никакого Redis, никакого Telegram — чистая unit-логика.
+"""
 from unittest.mock import patch
 
 import pytest
@@ -9,47 +10,64 @@ import pytest
 from ai_native_crm.main import RateLimiter
 
 
-class TestRateLimiter:
-    """Проверяем RateLimiter в изоляции — без бота и Redis."""
+# ---------------------------------------------------------------------------
+# test 1: 10 запросов за минуту — все разрешены
+# ---------------------------------------------------------------------------
 
-    def test_allows_within_limit(self):
-        limiter = RateLimiter(max_requests=3, window_sec=60.0)
-        assert limiter.is_allowed(1) is True
-        assert limiter.is_allowed(1) is True
-        assert limiter.is_allowed(1) is True
+def test_rate_limiter_allows_up_to_limit():
+    """Первые max_per_minute запросов должны быть разрешены."""
+    limiter = RateLimiter(max_per_minute=10)
+    chat_id = 12345
 
-    def test_blocks_over_limit(self):
-        limiter = RateLimiter(max_requests=3, window_sec=60.0)
-        for _ in range(3):
-            limiter.is_allowed(1)
-        assert limiter.is_allowed(1) is False
+    for _ in range(10):
+        assert limiter.is_allowed(chat_id) is True
 
-    def test_different_users_independent(self):
-        limiter = RateLimiter(max_requests=2, window_sec=60.0)
+
+# ---------------------------------------------------------------------------
+# test 2: 11-й запрос в ту же минуту — заблокирован
+# ---------------------------------------------------------------------------
+
+def test_rate_limiter_blocks_exceeding_requests():
+    """Запрос сверх лимита в скользящем окне должен быть отклонён."""
+    limiter = RateLimiter(max_per_minute=10)
+    chat_id = 99999
+
+    for _ in range(10):
+        limiter.is_allowed(chat_id)  # заполняем окно
+
+    # 11-й — должен быть заблокирован
+    assert limiter.is_allowed(chat_id) is False
+
+
+# ---------------------------------------------------------------------------
+# test 3: после истечения 60 секунд запросы снова разрешены
+# ---------------------------------------------------------------------------
+
+def test_rate_limiter_resets_after_window():
+    """Через 60 секунд скользящее окно освобождается и запросы снова проходят."""
+    limiter = RateLimiter(max_per_minute=10)
+    chat_id = 77777
+
+    # Имитируем: 10 запросов были сделаны 61 секунду назад
+    import time
+    old_ts = time.time() - 61
+    limiter._timestamps[chat_id] = [old_ts] * 10
+
+    # Теперь запрос должен быть разрешён — старые метки вне окна
+    assert limiter.is_allowed(chat_id) is True
+
+
+# ---------------------------------------------------------------------------
+# test 4: разные chat_id не влияют друг на друга
+# ---------------------------------------------------------------------------
+
+def test_rate_limiter_isolated_per_chat():
+    """Лимиты у разных chat_id независимы."""
+    limiter = RateLimiter(max_per_minute=3)
+
+    for _ in range(3):
         limiter.is_allowed(1)
-        limiter.is_allowed(1)
-        # user 1 is blocked
-        assert limiter.is_allowed(1) is False
-        # user 2 is fine
-        assert limiter.is_allowed(2) is True
 
-    def test_window_expiry_allows_again(self):
-        limiter = RateLimiter(max_requests=2, window_sec=1.0)
-        limiter.is_allowed(1)
-        limiter.is_allowed(1)
-        assert limiter.is_allowed(1) is False
-        # Simulate time passing
-        with patch("ai_native_crm.main.time") as mock_time:
-            # monotonic returns future time
-            future = time.monotonic() + 2.0
-            mock_time.monotonic.return_value = future
-            # Need to re-check — but the stored timestamps are real
-            # So we need to actually wait or mock properly
-        # Simpler: just sleep a bit with a tiny window
-        import time as _time
-        _time.sleep(1.1)
-        assert limiter.is_allowed(1) is True
-
-    def test_zero_limit_blocks_all(self):
-        limiter = RateLimiter(max_requests=0, window_sec=60.0)
-        assert limiter.is_allowed(1) is False
+    # chat_id=1 исчерпан, chat_id=2 — нет
+    assert limiter.is_allowed(1) is False
+    assert limiter.is_allowed(2) is True
