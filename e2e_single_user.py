@@ -10,7 +10,7 @@ All state is flushed for chat_id=1019677560 before the run starts.
 Results are saved to e2e_single_user_results.json.
 
 Run:
-    cd C:\\Users\\sazon\\OneDrive\\Desktop\\ai-native-crm
+    cd /path/to/ai-native-crm
     PYTHONIOENCODING=utf-8 python e2e_single_user.py
 """
 from __future__ import annotations

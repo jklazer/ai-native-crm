@@ -14,6 +14,7 @@ Results written to audit_4_lock_results.txt
 import asyncio
 import os
 import time
+from pathlib import Path
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
@@ -370,7 +371,7 @@ async def main() -> None:
     results: dict[str, bool] = {}
 
     with open(
-        "C:/Users/sazon/OneDrive/Desktop/ai-native-crm/audit_4_lock_results.txt",
+        Path(__file__).with_name("audit_4_lock_results.txt"),
         "w",
         encoding="utf-8",
     ) as f:

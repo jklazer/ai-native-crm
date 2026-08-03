@@ -18,7 +18,7 @@ After all users finish, STATE ISOLATION is verified:
 Results are saved to e2e_multi_user_results.json.
 
 Run:
-    cd C:\\Users\\sazon\\OneDrive\\Desktop\\ai-native-crm
+    cd /path/to/ai-native-crm
     PYTHONIOENCODING=utf-8 python e2e_multi_user.py
 """
 from __future__ import annotations

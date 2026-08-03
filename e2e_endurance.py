@@ -17,7 +17,7 @@ Key facts planted and verified:
              -> verified at turns 100, 150, 200
 
 Run:
-    cd C:\\Users\\sazon\\OneDrive\\Desktop\\ai-native-crm
+    cd /path/to/ai-native-crm
     PYTHONIOENCODING=utf-8 python e2e_endurance.py
 """
 from __future__ import annotations

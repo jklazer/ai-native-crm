@@ -18,6 +18,7 @@ import asyncio
 import os
 import time
 from unittest.mock import AsyncMock, patch, MagicMock
+from pathlib import Path
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
@@ -576,7 +577,7 @@ async def main() -> None:
     results: dict[str, bool] = {}
 
     with open(
-        "C:/Users/sazon/OneDrive/Desktop/ai-native-crm/audit_5_fault_results.txt",
+        Path(__file__).with_name("audit_5_fault_results.txt"),
         "w",
         encoding="utf-8",
     ) as f:

@@ -12,7 +12,7 @@ before every case so no cross-contamination occurs.
 Results are saved to e2e_edge_cases_results.json.
 
 Run:
-    cd C:\\Users\\sazon\\OneDrive\\Desktop\\ai-native-crm
+    cd /path/to/ai-native-crm
     PYTHONIOENCODING=utf-8 python e2e_edge_cases.py
 """
 from __future__ import annotations
