@@ -22,7 +22,7 @@
 
 ```bash
 # 1. Клонировать
-git clone https://github.com/YOUR/ai-native-crm.git
+git clone https://github.com/jklazer/ai-native-crm.git
 cd ai-native-crm
 
 # 2. Установить зависимости
